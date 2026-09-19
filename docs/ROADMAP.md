@@ -1,84 +1,102 @@
 # Roadmap
 
-## Phase 0 - Foundation
+## Phase 0 - Cross-platform foundation
 
-Mục tiêu: repository có kiến trúc, contracts, logging và test foundation trước khi đụng repair thực tế.
-
-- solution/project structure;
-- domain result types;
-- diagnostic runner;
-- structured logger;
+- .NET cross-platform core;
+- capability abstractions;
+- diagnostic/repair result contracts;
+- structured logging;
 - validation;
-- Windows adapter boundaries;
-- CI build/test.
+- platform detection;
+- CI matrix Windows + Linux;
+- chọn cross-platform UI framework.
 
-## Phase 1 - Read-only MVP diagnostics
+Exit:
+- Core/Application build và test trên Windows + Linux.
+- Không có WPF/WinUI dependency trong Core/Application.
 
-- environment discovery;
-- target validation;
-- hostname/IP resolution;
-- TCP/445 probe;
-- local Spooler status;
+## Phase 1 - Shared read-only diagnostics
+
+- hostname/IP;
+- DNS resolution;
+- reachability hints;
+- TCP probes;
+- SMB TCP/445;
+- IPP/IPPS endpoint probes;
+- target/protocol model;
+- diagnostic session;
+- hypothesis engine;
+- report export.
+
+## Phase 2A - Windows adapter
+
+- environment;
+- Print Spooler;
 - local printer inventory;
-- remote printer share discovery;
-- existing connection detection;
-- structured diagnostic session;
-- basic hypothesis engine;
-- simple UI.
+- Windows printer connections;
+- SMB printer share discovery;
+- driver/queue evidence.
 
-Exit criteria:
-- diagnostic không cần admin ở luồng bình thường;
-- không có mutation;
-- report giải thích được failure layer.
+## Phase 2B - Linux adapter
 
-## Phase 2 - Safe repairs
+- distro/runtime info;
+- CUPS availability/scheduler;
+- CUPS queues;
+- IPP/IPPS printer discovery/probe;
+- Samba/SMB capability;
+- Linux queue/driverless evidence.
 
-- restart Spooler;
-- remove stale printer connection;
-- connect shared printer;
-- verify after each action;
-- elevation flow;
-- user confirmation;
-- result states SUCCESS/FAILED/PARTIAL/SKIPPED.
+## Phase 3 - Cross-platform desktop UI
 
-## Phase 3 - Error-specific diagnostics
+- simple diagnostics;
+- technical view;
+- capability-aware controls;
+- unsupported state;
+- export.
 
-- `0x0000011b`;
-- `0x00000709`;
-- RPC/policy-related restrictions;
-- driver mismatch;
-- stuck queue;
-- credential/permission scenarios.
+## Phase 4A - Windows safe repairs
 
-Không implement bằng fixed "registry tweak". Mỗi case cần evidence + compatibility matrix.
+- Spooler restart;
+- remove/reconnect exact target;
+- verify;
+- least-privilege elevation.
 
-## Phase 4 - Technician mode
+## Phase 4B - Linux safe repairs
 
-- advanced details;
-- raw system codes;
-- export support bundle;
-- selective probe execution;
-- manual repair actions;
-- before/after comparison.
+- restart CUPS when evidence supports;
+- enable/recreate exact CUPS queue;
+- reconnect IPP/SMB target;
+- verify;
+- least-privilege via platform mechanism.
 
-## Phase 5 - Hardening & release
+## Phase 5 - OS-specific error research
 
-- Windows compatibility matrix;
-- integration test lab;
-- packaging;
-- portable build if feasible;
-- signing/checksum;
+Windows:
+- 0x0000011b;
+- 0x00000709;
+- RPC/policy.
+
+Linux:
+- CUPS scheduler unavailable;
+- stopped/disabled queue;
+- IPP auth/TLS;
+- Samba auth/share issues;
+- driverless capability mismatch.
+
+## Phase 6 - Hardening & release
+
+- CI/test matrix;
+- Windows packaging;
+- Linux AppImage/deb/rpm strategy evaluation;
+- signing/checksums;
 - privacy/security review;
-- documentation;
-- release process.
+- support matrix documentation.
 
-## Future candidates
+## Future
 
-Chỉ xem xét sau MVP:
 - print server-side diagnostics;
-- driver package management;
-- firewall-specific checks;
+- enterprise policies;
+- vendor-specific extensions;
 - fleet mode;
-- enterprise policy inspection;
 - remote support bundle;
 - auto-update.
