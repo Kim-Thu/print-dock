@@ -168,6 +168,8 @@ Chi tiết: [docs/SECURITY.md](docs/SECURITY.md)
 - [Diagnostics Model](docs/DIAGNOSTICS.md)
 - [Security & Safety](docs/SECURITY.md)
 - [Roadmap](docs/ROADMAP.md)
+- [Implementation Plan](docs/IMPLEMENTATION_PLAN.md)
+- [MVP Epic](https://github.com/Kim-Thu/print-dock/issues/1)
 
 ## Development status
 
