@@ -2,223 +2,148 @@
 
 ## 1. Product statement
 
-PrintDock là ứng dụng Windows giúp người dùng và kỹ thuật viên xác định vì sao máy in chia sẻ trong LAN không hoạt động, thực hiện repair có kiểm soát và xác nhận hệ thống đã trở lại trạng thái mong muốn.
+PrintDock là ứng dụng desktop đa nền tảng giúp người dùng và IT support xác định vì sao máy in local/network/shared không hoạt động trên Windows hoặc Linux, thực hiện repair có kiểm soát và verify kết quả.
 
-## 2. Người dùng chính
+## 2. Bối cảnh doanh nghiệp
+
+Do chi phí bản quyền, chuẩn hóa hạ tầng hoặc nhu cầu vận hành, một doanh nghiệp có thể có:
+
+- Windows desktop + Windows print host;
+- Linux desktop + CUPS server;
+- Linux desktop + Windows printer share qua Samba;
+- Windows desktop + printer IPP/network;
+- môi trường hỗn hợp Windows/Linux.
+
+Vì vậy sản phẩm không được coi "máy in mạng = Windows SMB printer share".
+
+## 3. Người dùng chính
 
 ### Người dùng phổ thông
-Biết máy in nào cần dùng nhưng không biết SMB, RPC, Spooler, driver hay registry là gì.
+Chỉ biết "không in được", không cần biết Spooler/CUPS/SMB/IPP là gì.
 
-Nhu cầu:
-- biết lỗi nằm ở đâu;
-- có thể sửa bằng vài thao tác;
-- không phải chạy lệnh thủ công;
-- được báo rõ PrintDock sắp thay đổi gì.
+### Kỹ thuật viên
+Cần evidence, native error, before/after, export log và repair chọn lọc theo OS.
 
-### Kỹ thuật viên / IT support
-Cần:
-- bằng chứng diagnostic;
-- system error code;
-- before/after state;
-- log export;
-- thao tác repair riêng lẻ;
-- tránh phải nhớ nhiều lệnh Windows.
-
-## 3. Bài toán lõi
-
-"Không in được" chỉ là triệu chứng. Chuỗi phụ thuộc thực tế có nhiều tầng:
+## 4. Bài toán lõi
 
 ```text
 User action
-  -> local printer configuration
-  -> driver / port / queue
-  -> Print Spooler
-  -> Windows RPC / printing subsystem
-  -> SMB / printer share
-  -> hostname / DNS / IP
-  -> LAN / firewall
-  -> print server
+  -> local printer/queue
+  -> print service
+       Windows: Print Spooler
+       Linux: CUPS
+  -> protocol
+       SMB / IPP / IPPS / others
+  -> hostname / IP / network
+  -> remote queue/share
+  -> permissions/auth
+  -> driver or driverless capability
   -> physical printer
 ```
 
-Một kết luận hợp lệ phải dựa trên nhiều tín hiệu. Ví dụ:
-- ping fail không đủ để kết luận server down;
-- TCP/445 open không đủ để kết luận printer connection sẽ thành công;
-- share tồn tại không đủ để kết luận client có quyền add;
-- Spooler running không đủ để kết luận queue/driver bình thường.
-
-## 4. Jobs to be done
+## 5. Jobs to be done
 
 ### JTBD-01 - Tôi không in được
-PrintDock phải giúp user phân biệt:
-- lỗi local;
-- lỗi kết nối tới server;
-- lỗi share;
-- lỗi permission;
-- lỗi driver;
-- lỗi queue/spooler;
-- lỗi policy/RPC.
+Tool xác định tầng lỗi bất kể Windows/Linux.
 
-### JTBD-02 - Tôi không add được máy in share
-PrintDock phải xác định bước nào fail:
-- resolve server;
-- reach service;
-- enumerate share;
-- connect printer;
-- install/use driver;
-- create local connection.
+### JTBD-02 - Tôi không add được printer
+Tool xác định protocol và bước fail: discovery, addressability, authentication, driver/queue creation.
 
-### JTBD-03 - Tôi nhận mã lỗi Windows
-Mã lỗi như `0x0000011b` hoặc `0x00000709` chỉ là input bổ sung, không phải nguyên nhân mặc định. Engine phải kiểm chứng tình trạng máy trước khi repair.
+### JTBD-03 - Tôi dùng mixed environment
+Tool phải hỗ trợ Linux client tới Windows share và ngược lại khi protocol phù hợp.
 
-### JTBD-04 - Tôi cần gửi log cho người hỗ trợ
-Report phải đủ để người khác biết:
-- môi trường;
-- diagnostic nào pass/fail;
-- system error;
-- repair nào đã chạy;
-- verify cuối cùng ra sao.
+### JTBD-04 - Tôi cần gửi support bundle
+Report phải ghi platform, print stack, protocol, probes, repairs và verify.
 
-## 5. Phạm vi MVP
+## 6. Phạm vi MVP
 
-### In scope
-- Windows client.
-- Windows machine acting as print server trong LAN.
-- Shared printer qua Windows printer sharing.
-- Discovery/validation thủ công bằng hostname/IP/share name.
-- Read-only diagnostics.
-- Limited safe repairs.
-- Structured logs và export report.
+### Cross-platform in scope
+- Windows 10/11.
+- Linux desktop/server phổ biến có CUPS.
+- Hostname/IP.
+- SMB diagnostics.
+- IPP/IPPS diagnostics.
+- Printer/queue inventory.
+- Print-service status.
+- Structured logs/report.
+- Safe repairs theo capability.
 
-### Out of scope
-- Internet printing.
-- Enterprise print server management ở quy mô domain lớn.
-- Printer fleet monitoring.
-- Cloud telemetry.
-- Remote admin tự động.
-- Driver download không kiểm soát.
-- Registry "tweak pack".
-- Bypass security controls.
+### Windows-specific
+- Print Spooler.
+- Windows SMB printer shares.
+- Windows connection state.
+- Win32/RPC-specific error research.
 
-## 6. Functional requirements
+### Linux-specific
+- CUPS scheduler/service.
+- CUPS queues.
+- IPP/IPPS.
+- Samba/SMB printer connections khi dùng Windows share.
+- queue enable/disable/restart/reconnect ở mức an toàn.
 
-### FR-01 Environment discovery
-Thu thập:
-- Windows edition/version/build;
-- x64/ARM64 nếu có;
-- hostname;
-- current user;
-- elevation state;
-- network interfaces liên quan.
+### Out of scope ban đầu
+- fleet management;
+- cloud telemetry;
+- remote arbitrary command;
+- auto-download driver;
+- bypass security;
+- every Linux distro/package manager;
+- printer vendor proprietary management.
 
-### FR-02 Target input
-Cho phép nhập:
-- hostname hoặc IP server;
-- printer share name;
-- local printer display name tùy chọn.
+## 7. Functional requirements
 
-Input phải validate trước khi dùng.
+### FR-01 Platform discovery
+Thu thập OS/platform, version, architecture, privilege/elevation và available capabilities.
 
-### FR-03 Diagnostic execution
-Mỗi probe trả về một object chuẩn:
-- id;
-- status;
-- summary;
-- evidence;
-- error code;
-- duration;
-- remediation hints;
-- privilege requirement.
+### FR-02 Target model
+Không chỉ "server + share". Target phải biểu diễn được:
+- SMB share;
+- IPP/IPPS URI;
+- local queue;
+- raw network printer mở rộng sau.
 
-### FR-04 Root-cause classification
-Không chỉ liệt kê pass/fail. Engine phải gom evidence thành hypothesis:
-- target unreachable;
-- SMB unavailable;
-- spooler unhealthy;
-- share missing;
-- connection denied;
-- existing stale connection;
-- driver problem;
-- unknown/insufficient evidence.
+### FR-03 Capability discovery
+App biết adapter hiện tại hỗ trợ gì. Unsupported phải khác Failed.
 
-Hypothesis phải có confidence/evidence, không khẳng định quá mức.
+### FR-04 Diagnostic execution
+Mỗi probe trả structured result với status/evidence/error/duration/platform/capability.
 
-### FR-05 Repair plan
-Trước khi sửa phải hiển thị:
-- action;
-- reason;
-- privilege;
-- expected impact;
-- rollback nếu có.
+### FR-05 Root-cause classification
+Rule engine dùng evidence trung lập OS khi có thể; rule OS-specific tách riêng.
 
-### FR-06 Verification
-Mỗi repair phải có verify tương ứng.
+### FR-06 Repair plan
+Hiển thị action, platform, required privilege, impact, rollback/recovery và verify.
 
 ### FR-07 Logging
-Log gồm:
-- timestamp;
-- correlation/session id;
-- diagnostic/repair id;
-- status;
-- system code;
-- safe metadata;
-- elapsed time.
+Ghi session/platform/protocol/probe/action/native error an toàn.
 
-## 7. Non-functional requirements
+## 8. Non-functional requirements
+
+### Portability
+Core, Application, rules, contracts và phần lớn tests phải chạy được Windows/Linux.
 
 ### Safety
-Không có repair mù.
+Không repair mù.
 
 ### Security
-Không lưu credential. Không shell concatenate input.
+Không lưu credential; không shell concatenate input; không chạy app full-admin/root mặc định.
 
 ### Reliability
-Một diagnostic fail không được làm toàn bộ session crash.
+Một adapter/probe fail không crash toàn app.
 
 ### Explainability
-User phải hiểu vì sao tool đề xuất repair.
-
-### Maintainability
-Diagnostic và repair phải là module độc lập, test được.
-
-### Performance
-Các probe độc lập có thể chạy song song sau khi xác định không gây side effect.
+Người dùng thấy nguyên nhân theo ngôn ngữ đời thường; kỹ thuật viên xem raw evidence.
 
 ### Compatibility
-Ban đầu ưu tiên Windows 10/11 còn được hỗ trợ; hỗ trợ Windows Server phải được xác nhận bằng test matrix, không mặc định.
+Hỗ trợ distro phải được định nghĩa theo print stack/capability, không quảng cáo "mọi Linux".
 
-## 8. Success criteria cho MVP
+## 9. Success criteria MVP
 
-MVP được xem là hữu dụng khi:
-1. chạy diagnostic mà không yêu cầu admin nếu chưa cần;
-2. xác định được tầng fail thay vì chỉ in raw command output;
-3. restart spooler/remove/reconnect printer có verify;
-4. mọi repair được ghi log;
-5. input độc hại/không hợp lệ không thể biến thành shell command;
-6. diagnostic engine có unit test và adapter Windows có integration test cơ bản.
-
-## 9. UX principle
-
-UI không bắt người dùng phải biết trước lỗi là 0x0000011b hay 0x00000709.
-
-Luồng mặc định:
-```text
-Chọn/nhập server + printer
-        |
-        v
-      Kiểm tra
-        |
-        v
-Kết quả theo từng tầng
-        |
-        v
-Repair plan phù hợp
-        |
-        v
-User xác nhận
-        |
-        v
-Repair -> Verify
-```
-
-Advanced mode mới hiển thị raw technical detail.
+1. cùng một Core chạy trên Windows và Linux;
+2. detect đúng platform/capability;
+3. Windows diagnostic dùng Spooler;
+4. Linux diagnostic dùng CUPS;
+5. cả hai dùng chung network/hypothesis/logging model;
+6. Linux có thể kiểm tra SMB share của Windows khi Samba client capability tồn tại;
+7. unsupported operation không bị báo failed;
+8. repair có verify và không yêu cầu quyền cao hơn cần thiết.
