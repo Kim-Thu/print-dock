@@ -2,55 +2,52 @@
 
 ## Mục tiêu kiến trúc
 
-PrintDock cần tách ba việc thường bị trộn lẫn trong các tiện ích Windows nhỏ:
+PrintDock là ứng dụng đa nền tảng. Kiến trúc phải tránh việc business logic bị khóa vào Windows API hoặc Linux command.
+
+Tách bốn lớp:
 
 1. UI;
-2. quyết định diagnostic/repair;
-3. tương tác trực tiếp với Windows.
-
-Nếu UI trực tiếp gọi `cmd.exe`, sửa registry và restart service thì hệ thống khó test, khó audit và khó rollback.
+2. orchestration và rule engine;
+3. capability contracts;
+4. OS-specific adapters.
 
 ## Logical architecture
 
 ```text
-+---------------------------+
-| PrintDock.App             |
-| WPF/WinUI UI + ViewModels |
-+-------------+-------------+
-              |
-              v
-+---------------------------+
-| PrintDock.Application     |
-| use cases / orchestration |
-| repair planning           |
-+-----+---------------+-----+
-      |               |
-      v               v
-+-----------+   +-----------+
-|Diagnostics|   | Repairs   |
-+-----+-----+   +-----+-----+
-      |               |
-      +-------+-------+
-              v
-+---------------------------+
-| PrintDock.Windows         |
-| OS adapters               |
-| services / printers /     |
-| network / registry / APIs |
-+-------------+-------------+
-              |
-              v
-+---------------------------+
-| Windows                   |
-+---------------------------+
-
-Cross-cutting:
-PrintDock.Core
-- result contracts
-- domain models
-- rule engine
-- logging abstractions
-- validation
++-----------------------------+
+| PrintDock.App               |
+| Cross-platform desktop UI   |
++--------------+--------------+
+               |
+               v
++-----------------------------+
+| PrintDock.Application       |
+| orchestration / repair plan |
++--------------+--------------+
+               |
+       +-------+-------+
+       |               |
+       v               v
++-------------+   +-------------+
+| Diagnostics |   | Repairs     |
++------+------+   +------+------+
+       |                 |
+       +--------+--------+
+                v
++-----------------------------+
+| PrintDock.Core              |
+| domain / contracts / rules  |
+| capability abstractions     |
++--------------+--------------+
+               |
+       +-------+--------+
+       |                |
+       v                v
++----------------+  +----------------+
+|Platform.Windows|  |Platform.Linux  |
+|Win32/SMB/RPC   |  |CUPS/IPP/Samba  |
+|Spooler/Registry|  |systemd/services|
++----------------+  +----------------+
 ```
 
 ## Suggested solution layout
@@ -62,18 +59,64 @@ src/
   PrintDock.Core/
   PrintDock.Diagnostics/
   PrintDock.Repairs/
-  PrintDock.Windows/
+  PrintDock.Platform/
+  PrintDock.Platform.Windows/
+  PrintDock.Platform.Linux/
 
 tests/
   PrintDock.Core.Tests/
   PrintDock.Diagnostics.Tests/
   PrintDock.Repairs.Tests/
-  PrintDock.Windows.IntegrationTests/
+  PrintDock.Platform.Windows.Tests/
+  PrintDock.Platform.Linux.Tests/
 ```
 
-## Diagnostic contract
+## Capability model
 
-Ví dụ khái niệm:
+Không gọi trực tiếp "WindowsSpoolerService" từ Application.
+
+Ví dụ abstraction:
+
+```csharp
+public interface IPrintServiceAdapter
+{
+    Task<PrintServiceStatus> GetStatusAsync(CancellationToken ct);
+    Task<RepairResult> RestartAsync(CancellationToken ct);
+}
+
+public interface IPrinterInventoryAdapter
+{
+    Task<IReadOnlyList<PrinterInfo>> GetPrintersAsync(CancellationToken ct);
+}
+
+public interface IPrinterConnectionAdapter
+{
+    Task<ConnectionProbeResult> ProbeAsync(PrinterTarget target, CancellationToken ct);
+    Task<RepairResult> ConnectAsync(PrinterTarget target, CancellationToken ct);
+}
+```
+
+Windows có thể map `IPrintServiceAdapter` sang Print Spooler.
+
+Linux map cùng contract sang CUPS.
+
+## Protocol model
+
+Protocol không đồng nghĩa OS.
+
+PrintDock phải tách:
+
+- SMB
+- IPP
+- IPPS
+- local USB/queue
+- network socket/LPR nếu mở rộng sau
+
+Ví dụ Linux client vẫn có thể kết nối printer được share từ Windows qua Samba/SMB.
+
+Windows client cũng có thể kết nối printer hỗ trợ IPP.
+
+## Diagnostic contract
 
 ```csharp
 public record DiagnosticResult(
@@ -86,109 +129,105 @@ public record DiagnosticResult(
 );
 ```
 
-Không trả về duy nhất string log.
-
-Status tối thiểu:
+Status:
 - Pass
 - Fail
 - Warning
 - Skipped
 - Unknown
+- Unsupported
+
+`Unsupported` rất quan trọng cho đa nền tảng: khác với Fail.
 
 ## Repair contract
 
-Một repair phải tách ba phase:
-
 ```text
 CanApply(context)
-    -> Plan(context)
-        -> Execute(plan)
-            -> Verify(result)
+    -> CheckCapability(platform)
+        -> Plan(context)
+            -> Execute(plan)
+                -> Verify(result)
 ```
 
-Plan lưu:
+Repair plan chứa:
+- platform;
+- required capability;
 - preconditions;
-- changes;
 - privilege;
-- backup/snapshot;
-- rollback strategy;
-- verification steps.
-
-## Rule engine
-
-Diagnostic không nên hard-code toàn bộ quyết định trong UI.
-
-Ví dụ:
-
-```text
-serverResolved = PASS
-tcp445         = PASS
-shareExists    = PASS
-connectPrinter = ACCESS_DENIED
-
-=> hypothesis: PrinterConnectionPermission
-=> do NOT repair DNS/SMB
-=> collect RPC/policy/credential evidence
-```
-
-Rule engine có thể bắt đầu bằng code thuần C# và immutable rules; chưa cần DSL.
+- changes;
+- snapshot;
+- rollback/recovery;
+- verification.
 
 ## Windows interaction strategy
 
-Ưu tiên theo thứ tự:
+Ưu tiên:
+1. .NET/Win32 API;
+2. WMI/CIM hoặc PowerShell API nếu cần;
+3. process invocation cuối cùng.
 
-1. .NET / Windows API có kiểu dữ liệu rõ ràng.
-2. WMI/CIM hoặc PowerShell API khi Windows API quá phức tạp.
-3. Process invocation chỉ khi cần.
-4. Tránh parse localized CLI text nếu có structured API thay thế.
+Không parse localized command output nếu có structured API.
 
-Nếu phải gọi process:
-- executable cố định;
-- arguments tách riêng;
-- timeout;
-- capture stdout/stderr;
-- không `cmd /c "<user input>"`.
+## Linux interaction strategy
+
+Ưu tiên:
+1. libcups / IPP client library có cấu trúc;
+2. D-Bus/system APIs khi thích hợp;
+3. `lpstat`, `lpadmin`, `systemctl` chỉ qua process adapter an toàn khi chưa có API phù hợp.
+
+Không dùng:
+```text
+bash -c "<user input>"
+```
+
+Command phải có executable cố định và argument tách riêng.
 
 ## Privilege model
 
-Read-only diagnostics chạy non-admin khi có thể.
+Windows:
+- non-admin diagnostics;
+- UAC khi repair cần Administrator.
 
-Elevation chỉ xảy ra khi:
-- restart service;
-- sửa cấu hình protected;
-- thao tác khác thực sự cần quyền.
+Linux:
+- non-root diagnostics;
+- polkit/sudo/system permission chỉ khi action cần;
+- không yêu cầu chạy cả app bằng root.
 
-Không chạy toàn bộ app elevated mặc định nếu không cần.
+## UI framework
 
-## Concurrency
+UI phải cross-platform từ đầu. Không dùng WPF hoặc WinUI cho shell chính nếu mục tiêu Linux là first-class.
 
-Có thể parallel:
-- OS info;
-- hostname resolution;
-- local printer inventory;
-- local spooler status.
+Các hướng phù hợp cần đánh giá trong issue riêng, ví dụ:
+- Avalonia UI với .NET;
+- hoặc web-based desktop shell nếu có lý do mạnh.
 
-Phải sequence:
-- repair -> verify;
-- remove connection -> reconnect;
-- snapshot -> mutation.
+Quyết định UI framework phải dựa trên:
+- Windows + Linux support;
+- packaging;
+- native integration;
+- accessibility;
+- footprint;
+- maintenance.
 
 ## Failure isolation
 
-Mỗi probe phải:
+Mỗi probe:
 - timeout;
-- catch OS-specific exception;
-- map error;
-- không crash whole diagnostic session.
+- cancellation;
+- map OS/native error;
+- không crash diagnostic session.
 
 ## Extensibility
 
-Mỗi diagnostic/repair có ID ổn định, ví dụ:
+Stable IDs nên trung lập OS khi có thể:
+
 - `NET.RESOLVE_HOST`
 - `NET.TCP_445`
-- `PRINT.LOCAL_SPOOLER`
-- `PRINT.SHARE_EXISTS`
+- `PRINT.SERVICE_STATUS`
+- `PRINT.INVENTORY`
 - `PRINT.CONNECTION_EXISTS`
-- `REPAIR.SPOOLER_RESTART`
 
-ID dùng trong log, test và rule engine.
+OS-specific IDs chỉ khi thật sự khác:
+
+- `WIN.PRINT.RPC_POLICY`
+- `LINUX.CUPS.SCHEDULER`
