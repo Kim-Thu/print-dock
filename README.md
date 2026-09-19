@@ -1,34 +1,54 @@
 # PrintDock
 
-**PrintDock** là ứng dụng Windows mã nguồn mở dùng để **chẩn đoán, sửa lỗi và quản lý kết nối máy in chia sẻ trong mạng LAN**.
+**PrintDock** là ứng dụng desktop mã nguồn mở dùng để **chẩn đoán, sửa lỗi và quản lý kết nối máy in trong mạng LAN trên Windows và Linux**.
 
-Mục tiêu của dự án không phải gom các "mẹo sửa lỗi" vào một nút bấm. PrintDock phải xác định nguyên nhân trước, chỉ thực hiện thay đổi phù hợp, ghi lại mọi thay đổi và kiểm tra lại sau khi sửa.
+Mục tiêu của dự án không phải gom các "mẹo sửa lỗi" vào một nút bấm. PrintDock phải xác định nguyên nhân trước, chỉ thực hiện thay đổi phù hợp với hệ điều hành hiện tại, ghi lại mọi thay đổi và kiểm tra lại sau khi sửa.
 
-> Trạng thái: đang phân tích và xây dựng MVP.
+> Trạng thái: đang phân tích và xây dựng MVP đa nền tảng.
+
+## Vì sao phải hỗ trợ Windows và Linux
+
+Nhiều doanh nghiệp dùng Windows ở máy người dùng nhưng Linux ở máy chủ, hoặc dùng Linux desktop để giảm chi phí bản quyền. Vì vậy PrintDock không được gắn chặt vào Print Spooler, Registry hay PowerShell.
+
+PrintDock phải hiểu hai hệ sinh thái in chính:
+
+```text
+Windows
+  -> Print Spooler
+  -> Windows printer sharing
+  -> SMB / RPC
+  -> Windows printer drivers
+  -> Registry / Group Policy
+
+Linux
+  -> CUPS
+  -> IPP / IPPS
+  -> Samba / SMB khi kết nối printer share kiểu Windows
+  -> lpadmin / lpstat / libcups
+  -> PPD / driverless printing
+  -> systemd/service permissions
+```
+
+Core của PrintDock phải dùng chung. Phần phụ thuộc hệ điều hành nằm trong adapter riêng.
 
 ## Bài toán
 
-Trong môi trường Windows, lỗi máy in chia sẻ thường bị biểu hiện giống nhau: "không in được", "không add được máy in", "không thấy máy in", hoặc các mã như `0x0000011b`, `0x00000709`.
-
-Nhưng nguyên nhân có thể nằm ở nhiều lớp khác nhau:
+"Không in được" chỉ là triệu chứng. Nguyên nhân có thể nằm ở:
 
 ```text
 Client
-  -> DNS / hostname / IP
+  -> hostname / IP
   -> LAN / firewall
-  -> SMB
-  -> RPC
-  -> Print Spooler
-  -> printer share
+  -> SMB hoặc IPP
+  -> print service
+       Windows: Print Spooler
+       Linux: CUPS
+  -> printer share / print queue
   -> credentials / permissions
-  -> driver
+  -> driver / driverless configuration
   -> local printer connection
-  -> print queue
-  -> Windows policy / registry
   -> physical printer
 ```
-
-Nếu sửa theo kiểu "thử hết registry, restart hết service" thì có thể làm thay đổi máy không cần thiết, khó rollback và khó biết nguyên nhân thật.
 
 PrintDock xử lý theo mô hình:
 
@@ -39,125 +59,107 @@ Collect -> Diagnose -> Explain -> Plan -> Repair -> Verify -> Report
 ## Nguyên tắc sản phẩm
 
 1. **Diagnostic trước, repair sau.**
-2. Không sửa thành phần đang hoạt động bình thường.
-3. Mọi thay đổi có rủi ro phải có thông tin before/after.
-4. Repair phải idempotent khi có thể: chạy lại không làm trạng thái xấu hơn.
-5. Sau mỗi repair phải chạy verification tương ứng.
-6. Không yêu cầu quyền Administrator cho các phép kiểm tra chỉ đọc.
-7. Chỉ nâng quyền khi thao tác thật sự cần.
-8. Không lưu mật khẩu người dùng.
-9. Không thực thi chuỗi lệnh ghép trực tiếp từ input người dùng.
-10. Log phải đủ cho người dùng và kỹ thuật viên hiểu "đã kiểm tra gì, thấy gì, sửa gì".
+2. Core không phụ thuộc Windows hoặc Linux.
+3. Không sửa thành phần đang hoạt động bình thường.
+4. Mọi thay đổi có rủi ro phải có before/after.
+5. Sau mỗi repair phải verify.
+6. Chỉ nâng quyền khi action thực sự cần.
+7. Không lưu mật khẩu.
+8. Không ghép trực tiếp input người dùng thành shell command.
+9. Mỗi platform adapter phải có capability rõ ràng.
+10. Nếu một chức năng không hỗ trợ trên OS hiện tại, UI phải nói rõ thay vì giả vờ chạy.
 
-## MVP
+## Phạm vi MVP
 
-MVP tập trung vào luồng máy khách Windows kết nối tới máy in được share từ một máy Windows khác trong cùng LAN.
+MVP có hai track song song:
 
-### Diagnostic
+### Shared diagnostics dùng chung
 
-- Thu thập Windows version/build, architecture và quyền hiện tại.
-- Validate hostname, IPv4/IPv6 và tên printer/share.
+- Validate hostname/IP/printer target.
 - Resolve hostname/IP.
-- Ping khi phù hợp nhưng không dùng ping làm điều kiện duy nhất.
-- Kiểm tra SMB TCP/445.
-- Kiểm tra Print Spooler local.
-- Phát hiện printer local / printer connection hiện có.
-- Liệt kê printer share trên server.
-- Kiểm tra khả năng resolve đường dẫn printer share.
-- Thu thập driver, port, queue và trạng thái liên quan.
-- Trả về kết quả có cấu trúc thay vì chỉ chuỗi log.
+- Kiểm tra network reachability.
+- Kiểm tra TCP service theo protocol.
+- Printer target model.
+- Structured diagnostic result.
+- Hypothesis engine.
+- Logging/report export.
 
-### Repair
+### Windows adapter
 
-- Restart Print Spooler an toàn.
-- Xóa printer connection cũ theo lựa chọn.
-- Kết nối lại shared printer.
-- Verify printer đã xuất hiện ở client.
-- Gửi test page khi người dùng chủ động yêu cầu.
-- Ghi nhận trạng thái `SUCCESS`, `FAILED`, `PARTIAL`, `SKIPPED`.
+- Print Spooler.
+- Windows printer inventory.
+- SMB printer share.
+- Windows printer connection.
+- Windows-specific repair.
 
-### Chưa thuộc MVP
+### Linux adapter
 
-- Tự động sửa tất cả registry/policy liên quan PrintNightmare.
-- Tự tải driver từ Internet.
-- Remote execution trên máy chủ.
-- Quản trị nhiều máy hàng loạt.
-- Cloud backend / telemetry.
-- Auto-update.
-- Thay đổi firewall diện rộng.
-
-Các phần này chỉ được thêm sau khi có diagnostic rule và test matrix rõ ràng.
+- Phát hiện distro/runtime cơ bản.
+- CUPS service.
+- Printer/queue inventory qua CUPS.
+- IPP/IPPS endpoint.
+- Samba/SMB printer share khi cần.
+- Driverless printer capability khi có.
+- Linux-specific repair qua CUPS/system service.
 
 ## Kiến trúc dự kiến
 
 ```text
 PrintDock.App
-  UI / ViewModels
         |
         v
 PrintDock.Application
-  Use cases / orchestration
-        |
-        +--> PrintDock.Diagnostics
-        |      network
-        |      smb
-        |      spooler
-        |      printers
-        |      drivers
-        |      queue
-        |
-        +--> PrintDock.Repairs
-        |      spooler repair
-        |      remove connection
-        |      connect printer
-        |
-        +--> PrintDock.Windows
-        |      Windows API / PowerShell adapters
         |
         +--> PrintDock.Core
-               models
-               rules
-               result types
-               logging contracts
+        |      models
+        |      contracts
+        |      rule engine
+        |      validation
+        |
+        +--> PrintDock.Diagnostics
+        |
+        +--> PrintDock.Repairs
+        |
+        +--> PrintDock.Platform
+               |
+               +--> PrintDock.Platform.Windows
+               |      Win32 / Service / SMB / RPC
+               |
+               +--> PrintDock.Platform.Linux
+                      CUPS / IPP / Samba / systemd
 ```
 
-Mục tiêu là tách UI khỏi logic hệ thống. UI không được tự gọi `cmd.exe`, sửa registry hay restart service.
+UI không được gọi trực tiếp `cmd.exe`, PowerShell, bash, `lpadmin`, Registry hay systemctl.
 
-## Luồng người dùng
+## Cross-platform capability
 
-### Chế độ đơn giản
+Không phải mọi lỗi đều tồn tại trên cả hai OS.
 
-Người dùng nhập/chọn máy chủ và máy in, sau đó bấm **Kiểm tra**.
+Ví dụ:
 
-PrintDock hiển thị:
+| Capability | Windows | Linux |
+|---|---:|---:|
+| Hostname/IP diagnostics | ✓ | ✓ |
+| TCP/445 SMB | ✓ | ✓ |
+| IPP/IPPS | Có thể | ✓ |
+| Print service | Spooler | CUPS |
+| Shared printer discovery | SMB/RPC | CUPS/IPP hoặc Samba |
+| Registry repair | ✓ | Không áp dụng |
+| CUPS queue repair | Không áp dụng | ✓ |
+| Driverless IPP Everywhere | Tùy printer | ✓ |
 
-- cái gì đang hoạt động;
-- cái gì đang lỗi;
-- nguyên nhân có khả năng phù hợp với bằng chứng nào;
-- thao tác nào sẽ được thực hiện trước khi người dùng bấm **Sửa**.
-
-### Chế độ kỹ thuật
-
-Hiển thị thêm:
-
-- từng diagnostic probe;
-- command/API đã sử dụng ở mức an toàn;
-- mã lỗi hệ thống;
-- before/after state;
-- thời gian thực thi;
-- raw log có thể export.
+Core chỉ yêu cầu capability; adapter quyết định implementation thực tế.
 
 ## Safety
 
-PrintDock có khả năng thay đổi service, printer connection, driver/policy trong các phiên bản sau nên safety là yêu cầu lõi:
-
-- input phải được validate và truyền dưới dạng argument, không nối chuỗi command;
+- validate input trước platform adapter;
+- không shell-concatenate;
 - repair có scope rõ;
-- thao tác destructive phải có confirm;
-- registry/policy phải snapshot trước khi sửa;
-- log phải che dữ liệu nhạy cảm;
+- destructive action cần confirm;
+- privilege escalation theo action;
 - không lưu credential;
-- chức năng elevated phải tách khỏi phần read-only khi có thể.
+- export report có redaction;
+- Windows-only workaround không bao giờ chạy trên Linux và ngược lại.
 
 Chi tiết: [docs/SECURITY.md](docs/SECURITY.md)
 
@@ -173,16 +175,14 @@ Chi tiết: [docs/SECURITY.md](docs/SECURITY.md)
 
 ## Development status
 
-Backlog được quản lý bằng GitHub Issues. Mỗi issue implementation phải có:
-
-- vấn đề cần giải quyết;
-- phạm vi;
-- phụ thuộc;
-- thiết kế kỹ thuật;
-- edge cases;
+Backlog được quản lý bằng GitHub Issues. Mỗi implementation issue phải nêu rõ:
+- platform nào áp dụng;
+- capability nào cần;
+- side effects;
+- privilege;
 - acceptance criteria;
 - test cases;
-- điều kiện không được làm.
+- hành vi khi capability không tồn tại.
 
 ## License
 
